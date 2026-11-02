@@ -1,0 +1,44 @@
+flowchart TD
+    %% Entities
+    subgraph ClientLayer ["1. Client / Consumer Layer (X, Discord, Mobile Wallet)"]
+        User["User Social Feed (Blink Client)"]
+        WalletExtension["Solana Wallet Adapter (Phantom/Backpack)"]
+    end
+
+    subgraph ActionEngine ["2. Enterprise Action & Blink Middleware (Fastify / TypeScript)"]
+        ActionRouter["Blink Action Router (/api/actions/vault-deposit)"]
+        TxBuilder["Atomic Transaction Composition Engine"]
+        AuditEmitter["Enterprise Audit Dispatcher"]
+    end
+
+    subgraph OnChainEngine ["3. Solana High-Throughput Runtime"]
+        SolanaRPC["Solana RPC Cluster (Jito / Triton / Helius)"]
+        VaultProgram["Anchor Vault Program (v_vault_blink)"]
+        VaultPDA["Vault Token Ledger & Share Mint PDAs"]
+        TokenProgram["SPL Token Program / Token-2022"]
+    end
+
+    subgraph EnterpriseOps ["4. Enterprise Observability & Alerts"]
+        DiscordWebhook["Discord Operations Channel"]
+        ResendAPI["Resend Enterprise Email Service"]
+    end
+
+    %% Execution Steps
+    User -->|"1. GET /api/actions/vault-deposit"| ActionRouter
+    ActionRouter -->|"2. Return Action Metadata (Title, Icon, Form Controls)"| User
+    User -->|"3. Select Preset (e.g. 1.0 SOL) & Click Deposit"| WalletExtension
+    WalletExtension -->|"4. POST /api/actions/vault-deposit with User Pubkey"| ActionRouter
+    
+    ActionRouter -->|"5. Fetch Latest Blockhash & Token Accounts"| SolanaRPC
+    ActionRouter -->|"6. Synthesize Atomic Swap & Deposit IXs"| TxBuilder
+    TxBuilder -->|"7. Return Serialized Unsigned Versioned Transaction"| WalletExtension
+
+    WalletExtension -->|"8. Prompt User Signature & Broadcast"| SolanaRPC
+    SolanaRPC -->|"9. Execute Instruction Pipeline"| VaultProgram
+    VaultProgram -->|"10. CPI Token Transfer to Vault PDA"| TokenProgram
+    VaultProgram -->|"11. CPI Mint Receipt Shares to User ATA"| TokenProgram
+    TokenProgram -->|"12. Settle & Commit State to Ledger"| VaultPDA
+
+    SolanaRPC -.->|"13. Transaction Confirmation Stream"| AuditEmitter
+    AuditEmitter -->|"14. Dispatch Signed Proof Notification"| DiscordWebhook
+    AuditEmitter -->|"15. Transmit Institutional Deposit Receipt"| ResendAPI

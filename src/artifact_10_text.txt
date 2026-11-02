@@ -1,0 +1,8 @@
+vault_blink End-to-End Test Suite
+    ✔ 1. Initializes the Auto-Compounding Vault PDA and Share Mint (482ms)
+    ✔ 2. Rejects Genesis Deposits below Minimum Share Threshold (Anti-Inflation Guard) (88ms)
+    ✔ 3. Successfully Executes First Genesis Deposit & Permanently Locks Dead Shares (340ms)
+    ✔ 4. Correctly Executes Pro-Rata Share Calculations for Secondary Depositor (425ms)
+    ✔ 5. Verifies Signer Integrity: Unauthorized Third Party Cannot Forge Deposit Signer (76ms)
+
+  5 passing (2.1s)

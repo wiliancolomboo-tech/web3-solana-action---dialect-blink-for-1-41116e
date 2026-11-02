@@ -1,0 +1,40 @@
+flowchart TD
+    subgraph ClientLayer["Client & Social Surface Layer"]
+        A["User on X (Twitter) / Dialect Extension"] -->|Renders URL via actions.json| B["Blink Unfurl Engine"]
+        B -->|GET /api/actions/vault-deposit| C["Next.js / Express Action API Server"]
+        C -->|Returns JSON Metadata & Action UI Inputs| B
+        A -->|Selects Amount & Clicks Deposit| D["Wallet Adapter (Phantom, Solflare)"]
+    end
+
+    subgraph APILayer["Solana Action Backend Engine"]
+        D -->|POST payload: {account: pubkey}| E["POST /api/actions/vault-deposit"]
+        E -->|Validate Params & Balance| F["Transaction Builder"]
+        F -->|Fetch Pool & Vault On-Chain State| G["RPC Node (Solana Mainnet/Devnet)"]
+        F -->|Build Anchor Instruction: swap_and_deposit| H["Unsigned Wire Transaction"]
+        H -->|Base64 Encoded with Signer specs| D
+    end
+
+    subgraph ExecutionLayer["On-Chain Runtime (Anchor Program)"]
+        D -->|Sign & Send Transaction via RPC| I["Solana Sealevel Runtime"]
+        I -->|Route to Program ID| J["vault_blink Program"]
+        
+        subgraph SecurityGuards["Security & Validation Checks"]
+            J --> K{"Signer & Account Checks"}
+            K -->|Invalid PDA / Signer| K1["Revert: InvalidSigner / ConstraintViolation"]
+            K -->|Passed| L{"Slippage & Invariant Check"}
+            L -->|dy < min_shares_out| L1["Revert: SlippageExceeded"]
+        end
+
+        subgraph CoreOperations["Atomic State Mutations"]
+            L -->|Passed| M["CPI: SPL Token Transfer / Swap"]
+            M --> N["Update Vault State (total_assets += dx)"]
+            N --> O["Calculate Share Math: S = (A * TotalShares) / TotalAssets"]
+            O --> P["CPI: Mint LP Shares to User ATA"]
+        end
+    end
+
+    subgraph StateStorage["Ledger Account State"]
+        N --> Q[("Vault PDA: ['vault', vault_id]")]
+        N --> R[("Vault Token Reserve ATA")]
+        P --> S[("User LP Token ATA")]
+    end

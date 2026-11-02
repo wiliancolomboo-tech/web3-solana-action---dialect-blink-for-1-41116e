@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "pathPattern": "/vault-deposit",
+      "apiPath": "/api/actions/vault-deposit"
+    },
+    {
+      "pathPattern": "/api/actions/**",
+      "apiPath": "/api/actions/**"
+    }
+  ]
+}

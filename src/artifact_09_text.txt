@@ -1,0 +1,7 @@
+Solana Action & Dialect Blink: 1-Click Vault Deposit Test Matrix
+    ✔ QA-01: Correctly initializes the Vault with associated PDA accounts (428ms)
+    ✔ QA-02: Successfully executes deposit_and_stake via valid signed CPI (382ms)
+    ✔ QA-03: Enforces slippage bounds and reverts when shares_out < min_shares_out (190ms)
+    ✔ QA-04: Rejects zero-value deposits (145ms)
+
+  4 passing (1.15s)

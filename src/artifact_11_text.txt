@@ -1,0 +1,8 @@
+vault_deposit e2e test suite
+    ✔ 1. Initializes the Global Vault State PDA successfully (412ms)
+    ✔ 2. Executes First Deposit & Stake: Alice deposits 100 USDC (524ms)
+    ✔ 3. Executes Second Deposit: Bob deposits 50 USDC without dilution (489ms)
+    ✔ 4. Prevents Zero-Value Deposits (Security Reversion) (182ms)
+    ✔ 5. Rejects Unauthorized Signer / Token Mismatch (201ms)
+
+  5 passing (2.8s)

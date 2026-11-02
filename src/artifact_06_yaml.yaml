@@ -1,0 +1,126 @@
+openapi: 3.0.3
+info:
+  title: Solana Action - 1-Click Vault Deposit
+  description: Official OpenAPI specification for the Solana Action & Dialect Blink vault deposit integration.
+  version: 1.0.0
+paths:
+  /api/actions/vault-deposit:
+    get:
+      summary: Retrieve Blink Metadata and Interaction Schema
+      operationId: getVaultActionMetadata
+      responses:
+        '200':
+          description: Metadata compliant with Dialect Blinks rendering standard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionGetResponse'
+        '500':
+          description: Internal processing fault
+    post:
+      summary: Build Vault Deposit Transaction
+      operationId: buildDepositTransaction
+      parameters:
+        - name: amount
+          in: query
+          required: true
+          description: Numerical quantity of asset tokens to stake
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionPostRequest'
+      responses:
+        '200':
+          description: Serialized VersionedTransaction ready for client signing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionPostResponse'
+        '400':
+          description: Invalid request parameters or account formatting
+        '500':
+          description: Transaction assembly failure
+components:
+  schemas:
+    ActionGetResponse:
+      type: object
+      required:
+        - type
+        - icon
+        - title
+        - description
+        - label
+        - links
+      properties:
+        type:
+          type: string
+          enum: [action]
+        icon:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        label:
+          type: string
+        disabled:
+          type: boolean
+        links:
+          type: object
+          properties:
+            actions:
+              type: array
+              items:
+                $ref: '#/components/schemas/LinkedAction'
+    LinkedAction:
+      type: object
+      required:
+        - href
+        - label
+      properties:
+        href:
+          type: string
+        label:
+          type: string
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionParameter'
+    ActionParameter:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        required:
+          type: boolean
+    ActionPostRequest:
+      type: object
+      required:
+        - account
+      properties:
+        account:
+          type: string
+          description: Base58 string of user public key
+    ActionPostResponse:
+      type: object
+      required:
+        - type
+        - transaction
+      properties:
+        type:
+          type: string
+          enum: [transaction]
+        transaction:
+          type: string
+          description: Base64 serialized VersionedTransaction
+        message:
+          type: string

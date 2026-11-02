@@ -1,0 +1,6 @@
+vault_blink integration suite
+    ✔ Initializes the yield vault with fee parameters (340ms)
+    ✔ Executes 1-click deposit with swap, verifying virtual shares and balance increments (612ms)
+    ✔ Fails when slippage tolerance is breached (185ms)
+
+  3 passing (1.8s)

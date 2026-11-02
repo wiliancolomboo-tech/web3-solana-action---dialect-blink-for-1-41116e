@@ -1,0 +1,19 @@
+{
+  "type": "action",
+  "icon": "https://arweave.net/qM1w7mD9Q1mYmK2-vault-banner-production.png",
+  "title": "Automated Alpha Vault - 1-Click Yield",
+  "description": "Deposit USDC directly into the auto-compounding Solana yield strategy. Generates vUSDC interest-bearing shares directly to your wallet.",
+  "label": "Deposit",
+  "links": {
+    "actions": [
+      { "label": "Deposit 10 USDC", "href": "http://localhost:3000/api/actions/vault?amount=10" },
+      { "label": "Deposit 50 USDC", "href": "http://localhost:3000/api/actions/vault?amount=50" },
+      { "label": "Deposit 250 USDC", "href": "http://localhost:3000/api/actions/vault?amount=250" },
+      {
+        "label": "Deposit Custom Amount",
+        "href": "http://localhost:3000/api/actions/vault?amount={amount}",
+        "parameters": [{ "name": "amount", "label": "Enter USDC Amount to Stake", "required": true }]
+      }
+    ]
+  }
+}

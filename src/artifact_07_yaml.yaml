@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  solana-blink-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: solana_blink_vault_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+      - VAULT_PROGRAM_ID=V1tB1inkDepositVault1111111111111111111111111
+      - UNDERLYING_MINT=So11111111111111111111111111111111111111112
+      - DISCORD_WEBHOOK_URL=https://api.example.com/webhooks/alerts/placeholder
+      - RESEND_API_KEY=re_your_live_resend_api_key
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

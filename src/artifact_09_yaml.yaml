@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  omnivault-blink-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: omnivault-gateway
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - PROGRAM_ID=Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS
+      - DISCORD_WEBHOOK_URL=https://api.example.com/webhooks/alerts/placeholder
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

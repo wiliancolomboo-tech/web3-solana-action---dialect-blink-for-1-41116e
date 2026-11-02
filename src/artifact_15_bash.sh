@@ -1,0 +1,1 @@
+curl -i -H "Accept: application/json" http://localhost:3000/api/actions/vault-deposit

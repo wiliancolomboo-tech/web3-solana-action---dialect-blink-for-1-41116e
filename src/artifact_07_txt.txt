@@ -1,0 +1,21 @@
++----------------------------------------------------------------------------------------------------+
+|                                    SECURITY DEFENSE IN DEPTH                                       |
++=========================+=======================================+==================================+
+| Threat Vector           | Protocol Vulnerability Mitigated      | Implementation Mechanism         |
++=========================+=======================================+==================================+
+| Inflation / Frontrunning| First-depositor donation attack       | `VIRTUAL_OFFSET = 1_000_000`     |
+| Attack (ERC-4626)       | skewing share price to infinity.      | added to numerator and denom.    |
++-------------------------+---------------------------------------+----------------------------------+
+| Dynamic Reentrancy      | Re-entering vault deposit during      | `vault.locked = true` flag check |
+|                         | nested CPI callbacks.                 | and transient state lockdown.    |
++-------------------------+---------------------------------------+----------------------------------+
+| Arbitrary PDA Injection | Attackers passing unverified token    | Seeds constraints:               |
+|                         | vaults or malicious mints.            | `[b"vault", mint.key()]` + bump  |
++-------------------------+---------------------------------------+----------------------------------+
+| Excessive Slippage      | MEV sandwich attacks on user          | Dual slippage bounds:            |
+|                         | social feed swaps.                    | `min_underlying_out` &           |
+|                         |                                       | `min_shares_out` enforced.       |
++-------------------------+---------------------------------------+----------------------------------+
+| Unchecked Math Overflow | Precision truncation or overflow      | Checked arithmetic (`checked_mul`|
+|                         | during share division.                | `checked_div`) returning Errors. |
++-------------------------+---------------------------------------+----------------------------------+

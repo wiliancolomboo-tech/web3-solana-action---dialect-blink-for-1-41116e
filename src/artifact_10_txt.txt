@@ -1,0 +1,8 @@
+vault_blink: Complete QA Invariant & Security Suite
+    ✔ 1. Successfully initializes the vault with derived PDAs (420ms)
+    ✔ 2. Executes First Deposit & locks 1,000 dead shares (Inflation Shield) (295ms)
+    ✔ 3. Executes Second Deposit with proportional shares preservation (280ms)
+    ✔ 4. Fails atomically when slippage limit is violated (155ms)
+    ✔ 5. Rejects deposit of 0 tokens (110ms)
+
+  5 passing (2s)

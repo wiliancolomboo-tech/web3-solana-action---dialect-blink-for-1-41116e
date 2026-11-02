@@ -1,0 +1,124 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Solana 1-Click Vault Deposit Action Specification",
+    "version": "1.0.0",
+    "description": "Standardized Blink metadata and transaction synthesis for 1-click staking."
+  },
+  "paths": {
+    "/api/actions/vault-deposit": {
+      "get": {
+        "summary": "Fetch Action Blink UI and Parameters",
+        "operationId": "getActionMetadata",
+        "responses": {
+          "200": {
+            "description": "Action metadata matching dialect standard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionGetResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Synthesize Deposit and Stake Transaction",
+        "operationId": "generateDepositTransaction",
+        "parameters": [
+          {
+            "name": "amount",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Amount of USDC to deposit"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionPostRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Compiled unsigned wire transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionPostResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid user account or parameters."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActionGetResponse": {
+        "type": "object",
+        "required": ["type", "icon", "title", "description", "label", "links"],
+        "properties": {
+          "type": { "type": "string", "enum": ["action"] },
+          "icon": { "type": "string", "format": "uri" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "label": { "type": "string" },
+          "links": {
+            "type": "object",
+            "properties": {
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "href": { "type": "string" },
+                    "parameters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "label": { "type": "string" },
+                          "required": { "type": "boolean" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ActionPostRequest": {
+        "type": "object",
+        "required": ["account"],
+        "properties": {
+          "account": { "type": "string", "description": "User Base58 Wallet Address" }
+        }
+      },
+      "ActionPostResponse": {
+        "type": "object",
+        "required": ["transaction"],
+        "properties": {
+          "transaction": { "type": "string", "description": "Base64 encoded wire transaction" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}

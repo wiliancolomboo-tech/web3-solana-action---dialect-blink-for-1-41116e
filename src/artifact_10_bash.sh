@@ -1,0 +1,1 @@
+solana address -k target/deploy/vault_blink-keypair.json

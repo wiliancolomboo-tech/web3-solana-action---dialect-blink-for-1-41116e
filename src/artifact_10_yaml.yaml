@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  blink-action-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: solana-blink-vault
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+      - VAULT_PROGRAM_ID=VauLt11111111111111111111111111111111111111
+      - USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+      - DISCORD_WEBHOOK_URL=https://api.example.com/webhooks/alerts/placeholder
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: Solana Action - 1-Click Vault Deposit
+  version: 1.0.0
+  description: Open-standard Solana Action & Blink API providing one-click yield staking.
+paths:
+  /api/actions/vault-deposit:
+    get:
+      summary: Retrieves Action metadata for Dialect Blink card unfurling
+      operationId: getVaultDepositAction
+      responses:
+        '200':
+          description: Action metadata successfully retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionGetResponse'
+    post:
+      summary: Builds serialized versioned transaction for user wallet execution
+      operationId: postVaultDepositAction
+      parameters:
+        - in: query
+          name: amount
+          schema:
+            type: string
+          required: true
+          description: Amount of underlying token to deposit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionPostRequest'
+      responses:
+        '200':
+          description: Serialized transaction ready for signing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionPostResponse'
+        '400':
+          description: Invalid input parameters
+        '500':
+          description: Preflight transaction construction failure
+
+components:
+  schemas:
+    ActionGetResponse:
+      type: object
+      required:
+        - type
+        - icon
+        - title
+        - description
+        - label
+      properties:
+        type:
+          type: string
+          enum: [action]
+        icon:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        label:
+          type: string
+        links:
+          type: object
+          properties:
+            actions:
+              type: array
+              items:
+                type: object
+                required:
+                  - label
+                  - href
+                properties:
+                  label:
+                    type: string
+                  href:
+                    type: string
+                  parameters:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        label:
+                          type: string
+                        required:
+                          type: boolean
+    ActionPostRequest:
+      type: object
+      required:
+        - account
+      properties:
+        account:
+          type: string
+          description: User's public key (base58 encoded)
+    ActionPostResponse:
+      type: object
+      required:
+        - transaction
+      properties:
+        transaction:
+          type: string
+          description: Base64-encoded serialized VersionedTransaction
+        message:
+          type: string
+          description: Optional human-readable message describing action context

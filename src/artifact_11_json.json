@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+X-Action-Version: 2.1.3
+Content-Type: application/json
+
+{
+  "type": "transaction",
+  "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...",
+  "message": "Successfully structured deposit for 50 USDC into Blink Vault!"
+}

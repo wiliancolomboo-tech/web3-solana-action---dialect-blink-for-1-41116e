@@ -1,0 +1,28 @@
++----------------------------------------------------------------------------------------------------+
+|                                    SECURITY AUDIT VECTOR MATRIX                                    |
++------------------------------+-------------------------+-------------------------------------------+
+| Threat Vector                | Risk Level              | Program Mitigation / Guard Architecture   |
++------------------------------+-------------------------+-------------------------------------------+
+| First-Depositor Inflation    | CRITICAL (Vault Draining)| Virtual Shares Offset:                    |
+| (ERC-4626 Donation Exploit)  |                         | Shares = (A_in * (S + 10^3)) / (A + 1).   |
+|                              |                         | Prevents denominator manipulation.        |
++------------------------------+-------------------------+-------------------------------------------+
+| Slippage / MEV Frontrunning  | HIGH (Sandwich Attack)  | `min_shares_out` parameter enforced:      |
+|                              |                         | require!(shares_to_mint >= min_shares_out)|
++------------------------------+-------------------------+-------------------------------------------+
+| Unverified Token Account     | CRITICAL (Forged Mint)  | Strict Anchor account constraints:        |
+| Injection                    |                         | `has_one = underlying_mint`               |
+|                              |                         | `has_one = vault_token_account`           |
++------------------------------+-------------------------+-------------------------------------------+
+| Signer Impersonation         | CRITICAL (Drain ATA)    | Depositor marked as `Signer<'info>` and   |
+|                              |                         | `depositor_token_account.owner ==         |
+|                              |                         | depositor.key()`.                         |
++------------------------------+-------------------------+-------------------------------------------+
+| Reentrancy via Fallback CPI  | MEDIUM                  | Checks-Effects-Interactions pattern:      |
+|                              |                         | State variables are updated only after CPI|
+|                              |                         | transfers succeed. SPL Token is not       |
+|                              |                         | arbitrary bytecode reentrant.             |
++------------------------------+-------------------------+-------------------------------------------+
+| Integer Overflow/Underflow   | HIGH (State Corruption) | Enforced `checked_add`, `checked_mul`,   |
+|                              |                         | `checked_div` returning Custom Errors.    |
++------------------------------+-------------------------+-------------------------------------------+

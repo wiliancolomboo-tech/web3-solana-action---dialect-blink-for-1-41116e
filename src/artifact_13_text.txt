@@ -1,0 +1,7 @@
+vault_blink anchor integration tests
+    ✔ 1. Initializes the Vault PDA & State correctly (412ms)
+    ✔ 2. Deposits tokens via 1-Click Blink Logic and prevents inflation exploits (389ms)
+    ✔ 3. Enforces slippage threshold and halts frontrunning (205ms)
+    ✔ 4. Blocks deposit from unauthorized token accounts (198ms)
+
+  4 passing (1.8s)

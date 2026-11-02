@@ -1,0 +1,4 @@
+HTTP/1.1 204 No Content
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET,POST,PUT,OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization, Content-Encoding, Accept-Encoding

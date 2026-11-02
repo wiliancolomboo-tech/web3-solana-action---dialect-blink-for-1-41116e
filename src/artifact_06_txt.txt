@@ -1,0 +1,10 @@
+┌─────────────────────────────────────────────────────────────┐
+   │                    SECURITY DEFENSE IN DEPTH                 │
+   └─────────────────────────────────────────────────────────────┘
+                                  │
+         ┌────────────────────────┼────────────────────────┐
+         ▼                        ▼                        ▼
+  [Economic Layer]        [Validation Layer]      [Architectural Layer]
+  - Virtual Offsets       - has_one checks        - Anchor PDA Seeds
+  - 10^3 Dead Shares      - Signer verification   - Idempotent ATAs
+  - Slippage BPS Caps     - SPL Program Pinning   - Strict CORS Engine

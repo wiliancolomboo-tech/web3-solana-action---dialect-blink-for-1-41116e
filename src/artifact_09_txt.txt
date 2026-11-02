@@ -1,0 +1,21 @@
++---------------------------+-----------------------------------+--------------------------------------------+
+| Attack Vector             | Vulnerability Surface             | Production Mitigation Implemented          |
++===========================+===================================+============================================+
+| Share Inflation Attack    | First depositor mints 1 wei share | Offset by VIRTUAL_OFFSET (1,000 shares)    |
+| (ERC-4626 / Vault Exploit)| and donates millions to vault.    | and denominator offset (+1) in math.       |
++---------------------------+-----------------------------------+--------------------------------------------+
+| Missing Signer Check      | Attacker drains user's token ATA  | Anchor `Signer<'info>` type strictly wraps |
+|                           | via malicious Blink payload.      | `user` account; rejects unsigned payloads. |
++---------------------------+-----------------------------------+--------------------------------------------+
+| PDA Substitution / Fake   | Malicious actor injects fake      | Seeds explicitly checked against:          |
+| Vault State               | state account to siphon deposits. | `[b"vault_state", deposit_mint.key()]`     |
++---------------------------+-----------------------------------+--------------------------------------------+
+| Cross-Mint Arbitrage      | User deposits Mint A and mints    | `has_one = deposit_mint` and `has_one =   |
+| Mismatch                  | high-value shares for Mint B.     | share_mint` enforce account identity.      |
++---------------------------+-----------------------------------+--------------------------------------------+
+| Sandwich / Slippage       | MEV searcher frontruns Blink tx   | `min_shares_out` parameter evaluated on-   |
+| Exploits                  | with huge swap to dilute shares.  | chain; transaction reverts if breached.    |
++---------------------------+-----------------------------------+--------------------------------------------+
+| CORS Injection Hijacking  | Phishing portal intercepts        | `ACTIONS_CORS_HEADERS` with explicit spec  |
+|                           | POST responses or impersonates.   | compliant headers; client side validation. |
++---------------------------+-----------------------------------+--------------------------------------------+

@@ -1,0 +1,1 @@
+npm install @solana/web3.js @solana/spl-token @coral-xyz/anchor @dialectlabs/blinks

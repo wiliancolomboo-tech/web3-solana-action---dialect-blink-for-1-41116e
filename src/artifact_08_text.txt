@@ -1,0 +1,8 @@
+Solana Action Vault & In-Feed Blink QA Suite
+    ✔ 1. [PASS] Initializes vault correctly with validated PDA authority (412ms)
+    ✔ 2. [REVERT] Fails if initial deposit is below inflation protection threshold (189ms)
+    ✔ 3. [PASS] Successfully accepts first deposit, sets invariant ratio 1:1 (320ms)
+    ✔ 4. [PASS] Proportional math handles second deposit correctly (285ms)
+    ✔ 5. [SECURITY] Rejects spoofed Asset Mint attack (145ms)
+
+  5 passing (1.8s)

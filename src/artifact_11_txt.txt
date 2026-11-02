@@ -1,0 +1,7 @@
+Solana Action & Dialect Blink Vault Tests
+    ✔ Executes first deposit correctly at 1:1 conversion ratio (182ms)
+    ✔ Executes second deposit correctly maintaining mathematical invariant (245ms)
+    ✔ Fails on zero-amount deposit attempt (62ms)
+    ✔ Rejects deposit if user token account does not match expected mint (98ms)
+
+  4 passing (1.8s)

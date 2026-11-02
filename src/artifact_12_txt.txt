@@ -1,0 +1,1 @@
+https://dial.to/?action=solana-action:https://<YOUR_TUNNEL_URL>/api/actions/vault-deposit

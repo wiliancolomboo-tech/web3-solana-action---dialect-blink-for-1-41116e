@@ -1,0 +1,19 @@
+{
+  "type": "action",
+  "icon": "https://arweave.net/qH97p5s962qT0c_G-7aE0u6Z5yvUjE3bXqA1m4k8L-A",
+  "title": "1-Click Yield Vault Deposit",
+  "description": "Deposit USDC directly into the auto-compounding delta-neutral yield vault. Instant staking and share receipt minting inside your feed.",
+  "label": "Deposit",
+  "links": {
+    "actions": [
+      { "label": "Deposit 10 USDC", "href": "/api/actions/vault-deposit?amount=10" },
+      { "label": "Deposit 50 USDC", "href": "/api/actions/vault-deposit?amount=50" },
+      { "label": "Deposit 100 USDC", "href": "/api/actions/vault-deposit?amount=100" },
+      {
+        "label": "Deposit Custom",
+        "href": "/api/actions/vault-deposit?amount={amount}",
+        "parameters": [{ "name": "amount", "label": "Enter custom USDC amount", "required": true }]
+      }
+    ]
+  }
+}
