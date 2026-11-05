@@ -1,350 +1,277 @@
-import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import cors from "@fastify/cors";
+import express, { Request, Response } from "express";
+import cors from "cors";
 import {
   Connection,
   PublicKey,
   Transaction,
-  SystemProgram,
   clusterApiUrl,
-  ComputeBudgetProgram
 } from "@solana/web3.js";
 import {
+  createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountInstruction,
-  getAccount,
-  TokenAccountNotFoundError
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Program, AnchorProvider, BN, Idl } from "@coral-xyz/anchor";
 import axios from "axios";
+import dotenv from "dotenv";
 
-// Environment validation
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-const RPC_URL = process.env.SOLANA_RPC_URL || clusterApiUrl("devnet");
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const VAULT_PROGRAM_ID = new PublicKey(
-  process.env.VAULT_PROGRAM_ID || "V1tB1inkDepositVault1111111111111111111111111"
-);
-const UNDERLYING_MINT = new PublicKey(
-  process.env.UNDERLYING_MINT || "So11111111111111111111111111111111111111112" // wSOL default
-);
+dotenv.config();
 
-// Minimal Anchor IDL definition for client-side Instruction compilation
-const IDL: Idl = {
-  version: "0.1.0",
-  name: "solana_vault_blink",
-  instructions: [
-    {
-      name: "deposit",
-      accounts: [
-        { name: "user", isMut: true, isSigner: true },
-        { name: "vault", isMut: true, isSigner: false },
-        { name: "underlyingMint", isMut: false, isSigner: false },
-        { name: "vaultTokenAccount", isMut: true, isSigner: false },
-        { name: "shareMint", isMut: true, isSigner: false },
-        { name: "userTokenAccount", isMut: true, isSigner: false },
-        { name: "userShareAccount", isMut: true, isSigner: false },
-        { name: "tokenProgram", isMut: false, isSigner: false }
-      ],
-      args: [
-        { name: "amount", type: "u64" },
-        { name: "minSharesOut", type: "u64" }
-      ]
-    }
-  ]
+const app = express();
+app.use(express.json());
+
+// Strict Action CORS Headers
+const actionCorsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, Content-Encoding, Accept-Encoding, X-Accept-Action-Version, X-Accept-Blockchain-Ids",
+  "Access-Control-Expose-Headers": "X-Action-Version, X-Blockchain-Ids",
+  "Content-Type": "application/json",
+  "X-Action-Version": "2.1.3",
+  "X-Blockchain-Ids": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 };
 
-const connection = new Connection(RPC_URL, "confirmed");
-const app: FastifyInstance = Fastify({ logger: true });
-
-// Register CORS headers compliant with Dialect and Solana Action standards
-app.register(cors, {
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "Content-Encoding",
-    "Accept-Encoding",
-    "x-action-version",
-    "x-blockchain-ids"
-  ],
-  exposedHeaders: ["x-action-version", "x-blockchain-ids"]
+app.use((req, res, next) => {
+  res.set(actionCorsHeaders);
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  next();
 });
 
-// Seed Constants
-const VAULT_SEED = Buffer.from("vault_state");
-const VAULT_TOKEN_SEED = Buffer.from("vault_token_account");
-const SHARE_MINT_SEED = Buffer.from("vault_share_mint");
+// Environment Configuration
+const PORT = process.env.PORT || 3000;
+const RPC_ENDPOINT = process.env.RPC_ENDPOINT || clusterApiUrl("devnet");
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
+const PROGRAM_ID = new PublicKey(
+  process.env.PROGRAM_ID || "Vau1tXN8YwK2qM4aM5rXgP6dE7T9uV1wY2z3A4b5C6d"
+);
+const UNDERLYING_MINT = new PublicKey(
+  process.env.UNDERLYING_MINT || "So11111111111111111111111111111111111111112" // Wrapped SOL default
+);
+const VAULT_SEED = new BN(1001);
 
-function getVaultPDAs(mint: PublicKey) {
-  const [vaultPda] = PublicKey.findProgramAddressSync(
-    [VAULT_SEED, mint.toBuffer()],
-    VAULT_PROGRAM_ID
+const connection = new Connection(RPC_ENDPOINT, "confirmed");
+
+// Helpers for PDA Derivations
+function getVaultPda(seed: BN): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("vault"), seed.toArrayLike(Buffer, "le", 8)],
+    PROGRAM_ID
   );
-  const [vaultTokenAccount] = PublicKey.findProgramAddressSync(
-    [VAULT_TOKEN_SEED, vaultPda.toBuffer()],
-    VAULT_PROGRAM_ID
-  );
-  const [shareMint] = PublicKey.findProgramAddressSync(
-    [SHARE_MINT_SEED, vaultPda.toBuffer()],
-    VAULT_PROGRAM_ID
-  );
-  return { vaultPda, vaultTokenAccount, shareMint };
 }
 
-// ---------------------------------------------------------------------
-// Solana Actions Specification Handlers
-// ---------------------------------------------------------------------
+function getTokenVaultPda(vault: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("token_vault"), vault.toBuffer()],
+    PROGRAM_ID
+  );
+}
 
-// 1. Root Actions JSON rewrite map
-app.get("/actions.json", async (req: FastifyRequest, reply: FastifyReply) => {
-  return reply.status(200).send({
-    rules: [
-      {
-        pathPattern: "/vault-deposit",
-        apiPath: "/api/actions/vault-deposit"
-      },
-      {
-        pathPattern: "/api/actions/**",
-        apiPath: "/api/actions/**"
-      }
-    ]
-  });
-});
+function getShareMintPda(vault: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("share_mint"), vault.toBuffer()],
+    PROGRAM_ID
+  );
+}
 
-// 2. Solana Action GET: Returns interactive metadata & execution options
-app.get("/api/actions/vault-deposit", async (req: FastifyRequest, reply: FastifyReply) => {
-  const baseHref = "/api/actions/vault-deposit";
+// Enterprise Webhook Dispatcher
+async function dispatchEnterpriseNotification(
+  wallet: string,
+  amount: number,
+  type: "deposit_intent" | "finalized"
+) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  try {
+    await axios.post(DISCORD_WEBHOOK_URL, {
+      embeds: [
+        {
+          title: `🛡️ Blink Vault Event: ${type.toUpperCase()}`,
+          color: type === "deposit_intent" ? 0x00f0ff : 0x00ff66,
+          fields: [
+            { name: "Depositor Account", value: `\`${wallet}\``, inline: false },
+            { name: "Amount (Units)", value: `${amount}`, inline: true },
+            { name: "Timestamp", value: new Date().toISOString(), inline: true },
+          ],
+          footer: { text: "Solana Action Dialect Sentinel" },
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("Failed to notify enterprise webhook:", error);
+  }
+}
 
-  const actionMetadata = {
+/**
+ * 1. GET /api/actions/vault-deposit
+ * Returns Action definition & UI controls compliant with Dialect Blink specification.
+ */
+app.get("/api/actions/vault-deposit", async (req: Request, res: Response) => {
+  const payload = {
     type: "action",
-    icon: "https://raw.githubusercontent.com/solana-developers/brand-assets/main/assets/solanaLogoMark.png",
-    title: "1-Click Solana High-Yield Yield Vault",
+    icon: "https://arweave.net/k9ZkM5c8Zvh8G9e1s4_VaultBanner_1024x512.png",
+    title: "1-Click Solana Automated Yield Vault",
     description:
-      "Deposit SOL/wSOL directly into the automated yield-bearing vault. Instant liquidity, receipt shares, and automated rebalancing.",
+      "Deposit SOL or SPL tokens directly into the yield aggregator in one click. Proportional vault LP tokens are automatically minted back to your wallet.",
     label: "Deposit",
     links: {
       actions: [
         {
-          label: "Deposit 0.1 SOL",
-          href: `${baseHref}?amount=0.1`
+          label: "0.1 SOL",
+          href: "/api/actions/vault-deposit?amount=0.1",
         },
         {
-          label: "Deposit 0.5 SOL",
-          href: `${baseHref}?amount=0.5`
+          label: "0.5 SOL",
+          href: "/api/actions/vault-deposit?amount=0.5",
         },
         {
-          label: "Deposit 1.0 SOL",
-          href: `${baseHref}?amount=1.0`
+          label: "1.0 SOL",
+          href: "/api/actions/vault-deposit?amount=1.0",
         },
         {
-          label: "Custom Deposit",
-          href: `${baseHref}?amount={amount}`,
+          label: "Deposit Custom",
+          href: "/api/actions/vault-deposit?amount={amount}",
           parameters: [
             {
               name: "amount",
-              label: "Enter deposit amount in SOL",
-              required: true
-            }
-          ]
-        }
-      ]
-    }
+              label: "Enter custom deposit amount",
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
   };
 
-  reply.header("x-action-version", "2.1.3");
-  reply.header("x-blockchain-ids", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp");
-  return reply.status(200).send(actionMetadata);
+  return res.status(200).json(payload);
 });
 
-// 3. Solana Action POST: Builds and returns the signed/serialized wire transaction
-interface PostDepositBody {
-  account: string;
-}
-
-interface PostDepositQuery {
-  amount?: string;
-}
-
-app.post("/api/actions/vault-deposit", async (req: FastifyRequest, reply: FastifyReply) => {
+/**
+ * 2. POST /api/actions/vault-deposit
+ * Builds, serializes, and returns the deposit transaction.
+ */
+app.post("/api/actions/vault-deposit", async (req: Request, res: Response) => {
   try {
-    const body = req.body as PostDepositBody;
-    const query = req.query as PostDepositQuery;
+    const { account } = req.body;
+    const amountStr = req.query.amount as string;
 
-    if (!body || !body.account) {
-      return reply.status(400).send({ error: "Missing required parameter: 'account'" });
+    if (!account) {
+      return res.status(400).json({ error: "Missing required 'account' field in body." });
     }
 
-    const userPubkey = new PublicKey(body.account);
-    const amountVal = parseFloat(query.amount || "0.1");
+    const userPubkey = new PublicKey(account);
+    const amountNum = parseFloat(amountStr);
 
-    if (isNaN(amountVal) || amountVal <= 0) {
-      return reply.status(400).send({ error: "Invalid deposit amount specified" });
+    if (isNaN(amountNum) || amountNum <= 0) {
+      return res.status(400).json({ error: "Invalid deposit 'amount' query parameter." });
     }
 
-    const lamports = Math.floor(amountVal * 1e9);
-    const { vaultPda, vaultTokenAccount, shareMint } = getVaultPDAs(UNDERLYING_MINT);
+    // Convert decimal to raw atomic integer (9 decimals standard for SOL/WSOL)
+    const rawAmount = new BN(Math.floor(amountNum * 1e9));
 
-    const userTokenAccount = getAssociatedTokenAddressSync(UNDERLYING_MINT, userPubkey);
-    const userShareAccount = getAssociatedTokenAddressSync(shareMint, userPubkey);
+    // PDA Resolutions
+    const [vault] = getVaultPda(VAULT_SEED);
+    const [tokenVault] = getTokenVaultPda(vault);
+    const [shareMint] = getShareMintPda(vault);
+
+    // Associated Token Accounts for user
+    const userTokenAta = getAssociatedTokenAddressSync(
+      UNDERLYING_MINT,
+      userPubkey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    const userShareAta = getAssociatedTokenAddressSync(
+      shareMint,
+      userPubkey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
 
     const tx = new Transaction();
 
-    // Set priority fee compute budget instructions
+    // Idempotent creation of user's share ATA if it does not yet exist
     tx.add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 })
+      createAssociatedTokenAccountIdempotentInstruction(
+        userPubkey,
+        userShareAta,
+        userPubkey,
+        shareMint,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
     );
 
-    // Verify if user's receipt share account exists; if not, prepend initialization instruction
-    try {
-      await getAccount(connection, userShareAccount);
-    } catch (e: any) {
-      if (e instanceof TokenAccountNotFoundError || e.name === "TokenAccountNotFoundError") {
-        tx.add(
-          createAssociatedTokenAccountInstruction(
-            userPubkey,
-            userShareAccount,
-            userPubkey,
-            shareMint
-          )
-        );
-      }
-    }
+    // Minimal discriminator for `deposit` (Anchor sighash: sha256("global:deposit")[..8])
+    // Pre-computed: [242, 35, 198, 137, 82, 225, 242, 182]
+    const depositInstructionDiscriminator = Buffer.from([
+      0xf2, 0x23, 0xc6, 0x89, 0x52, 0xe1, 0xf2, 0xb6,
+    ]);
 
-    // Build dummy anchor provider for instruction synthesis
-    const dummyWallet = {
-      publicKey: userPubkey,
-      signTransaction: async (t: any) => t,
-      signAllTransactions: async (t: any) => t
+    const amountBuffer = rawAmount.toArrayLike(Buffer, "le", 8);
+    const minSharesBuffer = new BN(1).toArrayLike(Buffer, "le", 8); // Slippage tolerance minimum
+    const instructionData = Buffer.concat([
+      depositInstructionDiscriminator,
+      amountBuffer,
+      minSharesBuffer,
+    ]);
+
+    const depositInstruction = {
+      programId: PROGRAM_ID,
+      keys: [
+        { pubkey: userPubkey, isSigner: true, isWritable: true },
+        { pubkey: vault, isSigner: false, isWritable: true },
+        { pubkey: tokenVault, isSigner: false, isWritable: true },
+        { pubkey: shareMint, isSigner: false, isWritable: true },
+        { pubkey: userTokenAta, isSigner: false, isWritable: true },
+        { pubkey: userShareAta, isSigner: false, isWritable: true },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      data: instructionData,
     };
-    const provider = new AnchorProvider(connection, dummyWallet as any, {
-      commitment: "confirmed"
-    });
-    const program = new Program(IDL, VAULT_PROGRAM_ID, provider);
 
-    const minSharesOut = new BN(1); // 1 lamport slippage guard
-    const depositIx = await program.methods
-      .deposit(new BN(lamports), minSharesOut)
-      .accounts({
-        user: userPubkey,
-        vault: vaultPda,
-        underlyingMint: UNDERLYING_MINT,
-        vaultTokenAccount: vaultTokenAccount,
-        shareMint: shareMint,
-        userTokenAccount: userTokenAccount,
-        userShareAccount: userShareAccount,
-        tokenProgram: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-      })
-      .instruction();
+    tx.add(depositInstruction);
 
-    tx.add(depositIx);
-
-    // Get blockhash and fee payer
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    // Fetch latest blockhash with finalized commitment
+    const { blockhash, lastValidBlockHeight } =
+      await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
     tx.feePayer = userPubkey;
 
-    // Serialize transaction without signatures for Dialect Blink wallet injection
+    // Serialize wire transaction without signatures
     const serializedTx = tx.serialize({
       requireAllSignatures: false,
-      verifySignatures: false
+      verifySignatures: false,
     });
+
     const base64Tx = serializedTx.toString("base64");
 
-    // Asynchronously dispatch webhook telemetry
-    dispatchEnterpriseAudit(userPubkey.toBase58(), amountVal, blockhash).catch((err) =>
-      console.error("Telemetry error:", err.message)
-    );
+    // Asynchronously alert internal enterprise monitoring
+    dispatchEnterpriseNotification(account, amountNum, "deposit_intent");
 
-    const responsePayload = {
-      type: "transaction",
+    return res.status(200).json({
       transaction: base64Tx,
-      message: `Successfully generated atomic 1-Click deposit for ${amountVal} SOL into the High-Yield Vault!`
-    };
-
-    reply.header("x-action-version", "2.1.3");
-    reply.header("x-blockchain-ids", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp");
-    return reply.status(200).send(responsePayload);
-  } catch (error: any) {
-    req.log.error(error);
-    return reply.status(500).send({
-      error: `Failed to construct transaction: ${error.message || "Internal server error"}`
+      message: `Deposit ${amountNum} into Solana Vault ready to sign.`,
+    });
+  } catch (err: any) {
+    console.error("Action handler exception:", err);
+    return res.status(500).json({
+      error: err.message || "Internal server error while formulating Blink action.",
     });
   }
 });
 
-// ---------------------------------------------------------------------
-// Enterprise Webhook & Notification Engine
-// ---------------------------------------------------------------------
-async function dispatchEnterpriseAudit(user: string, amount: number, blockhash: string) {
-  const timestamp = new Date().toISOString();
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "healthy", timestamp: Date.now() });
+});
 
-  // 1. Dispatch Discord Alert
-  if (DISCORD_WEBHOOK_URL) {
-    try {
-      await axios.post(DISCORD_WEBHOOK_URL, {
-        embeds: [
-          {
-            title: "Solana Action Blink Deposit Generated",
-            color: 0x14f195, // Solana Green
-            fields: [
-              { name: "Depositor", value: `\`${user}\``, inline: false },
-              { name: "Amount", value: `${amount} SOL`, inline: true },
-              { name: "Blockhash", value: `\`${blockhash.slice(0, 12)}...\``, inline: true },
-              { name: "Timestamp", value: timestamp, inline: false }
-            ],
-            footer: { text: "Solana Action Audit Daemon" }
-          }
-        ]
-      });
-    } catch (e: any) {
-      console.error("Discord audit error:", e.message);
-    }
-  }
-
-  // 2. Dispatch Enterprise Email via Resend
-  if (RESEND_API_KEY) {
-    try {
-      await axios.post(
-        "https://api.resend.com/emails",
-        {
-          from: "vault-audits@solana-blink-enterprise.com",
-          to: "secops-defi@enterprise.corp",
-          subject: `[SOLANA BLINK ACTION] Deposit Intent: ${amount} SOL`,
-          html: `
-            <h2>Solana Blink Deposit Intent Recorded</h2>
-            <p><strong>User Address:</strong> ${user}</p>
-            <p><strong>Amount:</strong> ${amount} SOL</p>
-            <p><strong>Blockhash:</strong> ${blockhash}</p>
-            <p><strong>Timestamp:</strong> ${timestamp}</p>
-          `
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    } catch (e: any) {
-      console.error("Resend API error:", e.message);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------
-// Server Lifecycle
-// ---------------------------------------------------------------------
-const start = async () => {
-  try {
-    await app.listen({ port: PORT, host: "0.0.0.0" });
-    console.log(`Blink Action Server active on port ${PORT}`);
-  } catch (err) {
-    app.log.error(err);
-    process.exit(1);
-  }
-};
-
-start();
+app.listen(PORT, () => {
+  console.log(`[Blink Core] Gateway running on http://localhost:${PORT}`);
+  console.log(`[Blink Core] Action URL: http://localhost:${PORT}/api/actions/vault-deposit`);
+});

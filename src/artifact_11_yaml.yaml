@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  solana-vault-blink:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: solana-vault-blink
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - VAULT_PROGRAM_ID=Vau1tB1ink111111111111111111111111111111111
+      - TOKEN_MINT=So11111111111111111111111111111111111111112
+      - DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-enterprise-hook
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

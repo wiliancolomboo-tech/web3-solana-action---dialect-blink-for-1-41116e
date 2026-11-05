@@ -1,12 +1,52 @@
 {
-  "rules": [
-    {
-      "pathPattern": "/vault-deposit",
-      "apiPath": "/api/actions/vault-deposit"
-    },
-    {
-      "pathPattern": "/api/actions/**",
-      "apiPath": "/api/actions/**"
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Solana Action & Blink Vault Deposit Gateway",
+    "version": "1.0.0",
+    "description": "Institutional Solana Action microservice for 1-click staking and yield deposits."
+  },
+  "paths": {
+    "/api/actions/vault-deposit": {
+      "get": {
+        "summary": "Resolve Blink Metadata",
+        "description": "Returns standard Dialect Blink metadata schema for client unfurling in feeds.",
+        "responses": {
+          "200": {
+            "description": "Action metadata successfully returned"
+          }
+        }
+      },
+      "post": {
+        "summary": "Build Unsigned Deposit Transaction",
+        "description": "Constructs an atomic, base64-encoded transaction ready for user signature.",
+        "parameters": [
+          {
+            "name": "amount",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "number" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "account": { "type": "string" }
+                },
+                "required": ["account"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsigned base64 transaction string with description"
+          }
+        }
+      }
     }
-  ]
+  }
 }

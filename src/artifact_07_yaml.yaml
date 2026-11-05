@@ -15,7 +15,7 @@ services:
       - VAULT_PROGRAM_ID=V1tB1inkDepositVault1111111111111111111111111
       - UNDERLYING_MINT=So11111111111111111111111111111111111111112
       - DISCORD_WEBHOOK_URL=https://api.example.com/webhooks/alerts/placeholder
-      - RESEND_API_KEY=re_your_live_resend_api_key
+      - RESEND_API_KEY=re_test_000000000000000000000000
     logging:
       driver: "json-file"
       options:

@@ -1,31 +1,32 @@
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 
-declare_id!("V1kDep0s1t111111111111111111111111111111111");
+declare_id!("Vau1tB1ink111111111111111111111111111111111");
 
-pub const VAULT_SEED: &[u8] = b"vault_state";
-pub const VAULT_TOKEN_SEED: &[u8] = b"vault_tokens";
+pub const VAULT_SEED: &[u8] = b"vault";
+pub const VAULT_AUTH_SEED: &[u8] = b"vault_auth";
 pub const SHARE_MINT_SEED: &[u8] = b"share_mint";
-pub const VIRTUAL_OFFSET: u128 = 1_000; // Mitigates ERC-4626 style inflation attacks
 
 #[program]
-pub mod vault_blink {
+pub mod yield_vault {
     use super::*;
 
-    /// Initializes the global vault and receipt share mint.
+    /// Initializes a new yield vault for a specific base token mint (e.g., USDC or WSOL).
     pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
         let vault = &mut ctx.accounts.vault;
-        vault.authority = ctx.accounts.authority.key();
-        vault.deposit_mint = ctx.accounts.deposit_mint.key();
+        vault.admin = ctx.accounts.admin.key();
+        vault.token_mint = ctx.accounts.token_mint.key();
         vault.share_mint = ctx.accounts.share_mint.key();
-        vault.total_staked = 0;
-        vault.vault_bump = ctx.bumps.vault;
-        vault.token_bump = ctx.bumps.vault_token_account;
-        vault.share_bump = ctx.bumps.share_mint;
+        vault.token_reserve = ctx.accounts.token_reserve.key();
+        vault.bump = ctx.bumps.vault;
+        vault.vault_auth_bump = ctx.bumps.vault_authority;
+        vault.total_deposited = 0;
+        vault.is_paused = false;
 
         emit!(VaultInitializedEvent {
-            authority: vault.authority,
-            deposit_mint: vault.deposit_mint,
+            admin: vault.admin,
+            token_mint: vault.token_mint,
             share_mint: vault.share_mint,
             timestamp: Clock::get()?.unix_timestamp,
         });
@@ -33,232 +34,249 @@ pub mod vault_blink {
         Ok(())
     }
 
-    /// Deposits base tokens into the vault and mints yield shares to the user.
-    pub fn deposit_and_stake(
-        ctx: Context<DepositAndStake>,
-        amount_in: u64,
-        min_shares_out: u64,
-    ) -> Result<()> {
-        require!(amount_in > 0, VaultError::InvalidDepositAmount);
+    /// Deposits base tokens into the vault and mints yield-bearing LP shares.
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        require!(!ctx.accounts.vault.is_paused, VaultError::VaultPaused);
+        require!(amount > 0, VaultError::ZeroDepositAmount);
 
         let vault = &ctx.accounts.vault;
-        let deposit_mint_key = vault.deposit_mint;
-        let vault_bump = vault.vault_bump;
+        let total_vault_tokens = ctx.accounts.token_reserve.amount;
+        let total_share_supply = ctx.accounts.share_mint.supply;
 
-        // Calculate current virtual reserves
-        let current_tokens = ctx.accounts.vault_token_account.amount;
-        let current_shares = ctx.accounts.share_mint.supply;
+        // Calculate share allocation:
+        // If initial deposit: 1 token = 1 share
+        // Subsequent deposits: shares = (deposit_amount * total_shares) / total_vault_tokens
+        let shares_to_mint = if total_share_supply == 0 || total_vault_tokens == 0 {
+            amount
+        } else {
+            amount
+                .checked_mul(total_share_supply)
+                .ok_or(VaultError::MathOverflow)?
+                .checked_div(total_vault_tokens)
+                .ok_or(VaultError::MathOverflow)?
+        };
 
-        // ERC-4626 virtual shares conversion:
-        // shares_to_mint = amount_in * (total_shares + VIRTUAL_OFFSET) / (total_tokens + 1)
-        let shares_to_mint_u128 = (amount_in as u128)
-            .checked_mul((current_shares as u128).checked_add(VIRTUAL_OFFSET).ok_or(VaultError::MathOverflow)?)
-            .ok_or(VaultError::MathOverflow)?
-            .checked_div((current_tokens as u128).checked_add(1).ok_or(VaultError::MathOverflow)?)
-            .ok_or(VaultError::MathOverflow)?;
+        require!(shares_to_mint > 0, VaultError::ZeroShareAllocation);
 
-        let shares_to_mint = u64::try_from(shares_to_mint_u128)
-            .map_err(|_| VaultError::ConversionOverflow)?;
+        // Transfer base tokens from depositor to the vault reserve
+        let transfer_cpi_accounts = Transfer {
+            from: ctx.accounts.user_token_account.to_account_info(),
+            to: ctx.accounts.token_reserve.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, transfer_cpi_accounts);
+        token::transfer(cpi_ctx, amount)?;
 
-        require!(
-            shares_to_mint >= min_shares_out,
-            VaultError::SlippageToleranceExceeded
-        );
+        // Mint LP shares directly to user
+        let seeds = &[
+            VAULT_AUTH_SEED,
+            &[vault.vault_auth_bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
 
-        // 1. CPI: Transfer user tokens to Vault Token PDA Account
-        let transfer_ctx = CpiContext::new(
+        let mint_to_accounts = MintTo {
+            mint: ctx.accounts.share_mint.to_account_info(),
+            to: ctx.accounts.user_share_account.to_account_info(),
+            authority: ctx.accounts.vault_authority.to_account_info(),
+        };
+        let mint_cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.user_token_account.to_account_info(),
-                to: ctx.accounts.vault_token_account.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
-            },
+            mint_to_accounts,
+            signer_seeds,
         );
-        token::transfer(transfer_ctx, amount_in)?;
+        token::mint_to(mint_cpi_ctx, shares_to_mint)?;
 
-        // 2. CPI: Mint shares to user receipt ATA using Vault PDA signer seeds
-        let authority_seeds: &[&[&[u8]]] = &[&[
-            VAULT_SEED,
-            deposit_mint_key.as_ref(),
-            &[vault_bump],
-        ]];
-
-        let mint_to_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            MintTo {
-                mint: ctx.accounts.share_mint.to_account_info(),
-                to: ctx.accounts.user_share_account.to_account_info(),
-                authority: ctx.accounts.vault.to_account_info(),
-            },
-            authority_seeds,
-        );
-        token::mint_to(mint_to_ctx, shares_to_mint)?;
-
-        // 3. Mutate Vault State
+        // Update state
         let vault_mut = &mut ctx.accounts.vault;
-        vault_mut.total_staked = vault_mut
-            .total_staked
-            .checked_add(amount_in)
+        vault_mut.total_deposited = vault_mut
+            .total_deposited
+            .checked_add(amount)
             .ok_or(VaultError::MathOverflow)?;
 
-        emit!(DepositStakedEvent {
+        emit!(DepositEvent {
             user: ctx.accounts.user.key(),
-            amount_deposited: amount_in,
+            token_amount: amount,
             shares_minted: shares_to_mint,
-            total_vault_tokens: ctx.accounts.vault_token_account.amount + amount_in,
             timestamp: Clock::get()?.unix_timestamp,
         });
 
         Ok(())
     }
+
+    /// Toggles emergency pause state. Admin only.
+    pub fn set_paused(ctx: Context<AdminOnly>, paused: bool) -> Result<()> {
+        let vault = &mut ctx.accounts.vault;
+        vault.is_paused = paused;
+        emit!(VaultPauseStateChanged { paused, timestamp: Clock::get()?.unix_timestamp });
+        Ok(())
+    }
 }
 
-// -----------------------------------------------------------------------------
-// ACCOUNT CONTEXTS
-// -----------------------------------------------------------------------------
+// ============================================================================
+// Account Structs
+// ============================================================================
 
 #[derive(Accounts)]
 pub struct InitializeVault<'info> {
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub admin: Signer<'info>,
 
-    pub deposit_mint: Account<'info, Mint>,
-
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + VaultState::INIT_SPACE,
-        seeds = [VAULT_SEED, deposit_mint.key().as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, VaultState>,
+    pub token_mint: Box<Account<'info, Mint>>,
 
     #[account(
         init,
-        payer = authority,
-        seeds = [VAULT_TOKEN_SEED, vault.key().as_ref()],
+        seeds = [SHARE_MINT_SEED, token_mint.key().as_ref()],
         bump,
-        token::mint = deposit_mint,
-        token::authority = vault,
+        payer = admin,
+        mint::decimals = token_mint.decimals,
+        mint::authority = vault_authority,
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub share_mint: Box<Account<'info, Mint>>,
+
+    /// CHECK: PDA signer authority for token minting and asset holding
+    #[account(
+        seeds = [VAULT_AUTH_SEED],
+        bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
 
     #[account(
         init,
-        payer = authority,
-        seeds = [SHARE_MINT_SEED, vault.key().as_ref()],
+        seeds = [VAULT_SEED, token_mint.key().as_ref()],
         bump,
-        mint::decimals = deposit_mint.decimals,
-        mint::authority = vault,
+        payer = admin,
+        space = 8 + Vault::INIT_SPACE,
     )]
-    pub share_mint: Account<'info, Mint>,
+    pub vault: Box<Account<'info, Vault>>,
+
+    #[account(
+        init,
+        payer = admin,
+        associated_token::mint = token_mint,
+        associated_token::authority = vault_authority,
+    )]
+    pub token_reserve: Box<Account<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
-pub struct DepositAndStake<'info> {
+pub struct Deposit<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
-    pub deposit_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        seeds = [VAULT_SEED, vault.token_mint.as_ref()],
+        bump = vault.bump,
+        has_one = token_reserve,
+        has_one = share_mint,
+    )]
+    pub vault: Box<Account<'info, Vault>>,
+
+    /// CHECK: PDA signer authority
+    #[account(
+        seeds = [VAULT_AUTH_SEED],
+        bump = vault.vault_auth_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub share_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
-        seeds = [VAULT_SEED, deposit_mint.key().as_ref()],
-        bump = vault.vault_bump,
-        has_one = deposit_mint @ VaultError::DepositMintMismatch,
-        has_one = share_mint @ VaultError::ShareMintMismatch,
+        constraint = user_token_account.mint == vault.token_mint,
+        constraint = user_token_account.owner == user.key(),
     )]
-    pub vault: Account<'info, VaultState>,
+    pub user_token_account: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        init_if_needed,
+        payer = user,
+        associated_token::mint = share_mint,
+        associated_token::authority = user,
+    )]
+    pub user_share_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
-        seeds = [VAULT_TOKEN_SEED, vault.key().as_ref()],
-        bump = vault.token_bump,
+        constraint = token_reserve.key() == vault.token_reserve,
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        seeds = [SHARE_MINT_SEED, vault.key().as_ref()],
-        bump = vault.share_bump,
-    )]
-    pub share_mint: Account<'info, Mint>,
-
-    #[account(
-        mut,
-        constraint = user_token_account.owner == user.key() @ VaultError::InvalidTokenAccountOwner,
-        constraint = user_token_account.mint == deposit_mint.key() @ VaultError::DepositMintMismatch,
-    )]
-    pub user_token_account: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        constraint = user_share_account.owner == user.key() @ VaultError::InvalidTokenAccountOwner,
-        constraint = user_share_account.mint == share_mint.key() @ VaultError::ShareMintMismatch,
-    )]
-    pub user_share_account: Account<'info, TokenAccount>,
+    pub token_reserve: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
-// -----------------------------------------------------------------------------
-// STATE
-// -----------------------------------------------------------------------------
+#[derive(Accounts)]
+pub struct AdminOnly<'info> {
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        has_one = admin @ VaultError::Unauthorized,
+    )]
+    pub vault: Account<'info, Vault>,
+}
+
+// ============================================================================
+// State Definition
+// ============================================================================
 
 #[account]
-pub struct VaultState {
-    pub authority: Pubkey,     // 32
-    pub deposit_mint: Pubkey,  // 32
-    pub share_mint: Pubkey,    // 32
-    pub total_staked: u64,     // 8
-    pub vault_bump: u8,        // 1
-    pub token_bump: u8,        // 1
-    pub share_bump: u8,        // 1
+#[derive(InitSpace)]
+pub struct Vault {
+    pub admin: Pubkey,          // 32
+    pub token_mint: Pubkey,     // 32
+    pub share_mint: Pubkey,     // 32
+    pub token_reserve: Pubkey,  // 32
+    pub bump: u8,               // 1
+    pub vault_auth_bump: u8,    // 1
+    pub total_deposited: u64,   // 8
+    pub is_paused: bool,        // 1
 }
 
-impl VaultState {
-    pub const INIT_SPACE: usize = 32 + 32 + 32 + 8 + 1 + 1 + 1;
-}
-
-// -----------------------------------------------------------------------------
-// EVENTS & ERRORS
-// -----------------------------------------------------------------------------
+// ============================================================================
+// Events and Errors
+// ============================================================================
 
 #[event]
 pub struct VaultInitializedEvent {
-    pub authority: Pubkey,
-    pub deposit_mint: Pubkey,
+    pub admin: Pubkey,
+    pub token_mint: Pubkey,
     pub share_mint: Pubkey,
     pub timestamp: i64,
 }
 
 #[event]
-pub struct DepositStakedEvent {
+pub struct DepositEvent {
     pub user: Pubkey,
-    pub amount_deposited: u64,
+    pub token_amount: u64,
     pub shares_minted: u64,
-    pub total_vault_tokens: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct VaultPauseStateChanged {
+    pub paused: bool,
     pub timestamp: i64,
 }
 
 #[error_code]
 pub enum VaultError {
+    #[msg("Vault operations are currently paused.")]
+    VaultPaused,
     #[msg("Deposit amount must be strictly greater than zero.")]
-    InvalidDepositAmount,
-    #[msg("Calculation resulted in integer overflow/underflow.")]
+    ZeroDepositAmount,
+    #[msg("Share allocation resulted in 0 shares.")]
+    ZeroShareAllocation,
+    #[msg("Arithmetic overflow occurred during conversion.")]
     MathOverflow,
-    #[msg("Share calculation exceeds u64 boundary.")]
-    ConversionOverflow,
-    #[msg("Slippage limit reached. Received fewer shares than minimum acceptable threshold.")]
-    SlippageToleranceExceeded,
-    #[msg("Target deposit mint does not match vault configuration.")]
-    DepositMintMismatch,
-    #[msg("Receipt share mint does not match vault configuration.")]
-    ShareMintMismatch,
-    #[msg("Associated token account is not owned by the signing user.")]
-    InvalidTokenAccountOwner,
+    #[msg("Signer is not authorized to perform this operation.")]
+    Unauthorized,
 }

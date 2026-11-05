@@ -1,1 +1,1 @@
-anchor test
+docker-compose up -d --build

@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  blink-vault-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: solana-blink-vault:latest
+    container_name: blink_vault_api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - RPC_ENDPOINT=https://api.mainnet-beta.solana.com
+      - PROGRAM_ID=Vau1tXN8YwK2qM4aM5rXgP6dE7T9uV1wY2z3A4b5C6d
+      - UNDERLYING_MINT=So11111111111111111111111111111111111111112
+      - DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/dummy/placeholder
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

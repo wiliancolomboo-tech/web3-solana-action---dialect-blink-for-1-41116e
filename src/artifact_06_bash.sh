@@ -1,15 +1,19 @@
-# 1. Clone the repository and navigate to root directory
-git clone https://github.com/example/solana-action-vault-blink.git
-cd solana-action-vault-blink
+# 1. Clone & install dependencies
+git clone https://github.com/sponsor-org/blink-vault.git
+cd blink-vault && npm install
 
-# 2. Install all Node dependencies
-yarn install
-
-# 3. Build the Anchor program binary and generate IDL types
+# 2. Build and verify Anchor smart contract
 anchor build
-
-# 4. Sync Program ID with local target keys
-anchor keys sync
-
-# 5. Run the complete automated test matrix (Starts local test validator automatically)
 anchor test
+
+# 3. Deploy smart contract to Solana Devnet / Mainnet
+solana config set --url https://api.devnet.solana.com
+solana airdrop 2
+anchor deploy --program-name solana_vault --provider.cluster devnet
+
+# 4. Export configuration environment variables
+export RPC_ENDPOINT="https://api.devnet.solana.com"
+export PROGRAM_ID="<YOUR_DEPLOYED_PROGRAM_ID>"
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/your-channel-webhook"
+npm run build
+npm start

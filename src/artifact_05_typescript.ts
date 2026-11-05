@@ -1,210 +1,189 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { SolanaVaultBlink } from "../target/types/solana_vault_blink";
-import {
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  LAMPORTS_PER_SOL
-} from "@solana/web3.js";
+import { SolanaVault } from "../target/types/solana_vault";
 import {
   createMint,
-  createAccount,
+  getOrCreateAssociatedTokenAccount,
   mintTo,
   getAccount,
-  TOKEN_PROGRAM_ID
 } from "@solana/spl-token";
-import { expect } from "chai";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { assert, expect } from "chai";
 
-describe("Solana Vault Blink Integration Matrix", () => {
+describe("solana_vault_tests", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.SolanaVaultBlink as Program<SolanaVaultBlink>;
-
-  const authority = Keypair.generate();
-  const user = Keypair.generate();
+  const program = anchor.workspace.SolanaVault as Program<SolanaVault>;
 
   let underlyingMint: PublicKey;
+  let vaultSeed: anchor.BN;
+  let vaultPda: PublicKey;
+  let tokenVaultPda: PublicKey;
+  let shareMintPda: PublicKey;
+
+  let user = Keypair.generate();
   let userTokenAccount: PublicKey;
   let userShareAccount: PublicKey;
 
-  let vaultPda: PublicKey;
-  let vaultTokenAccount: PublicKey;
-  let shareMint: PublicKey;
+  const INITIAL_MINT_AMOUNT = 5_000_000_000; // 5 tokens (9 decimals)
+  const DEPOSIT_CAP = new anchor.BN(10_000_000_000);
 
   before(async () => {
-    // 1. Airdrop SOL to test actors
-    const airdropAuth = await provider.connection.requestAirdrop(
-      authority.publicKey,
-      10 * LAMPORTS_PER_SOL
-    );
-    await provider.connection.confirmTransaction(airdropAuth);
-
-    const airdropUser = await provider.connection.requestAirdrop(
+    // Airdrop SOL to payer & test user
+    const airdropSig = await provider.connection.requestAirdrop(
       user.publicKey,
-      10 * LAMPORTS_PER_SOL
+      2 * anchor.web3.LAMPORTS_PER_SOL
     );
-    await provider.connection.confirmTransaction(airdropUser);
+    await provider.connection.confirmTransaction(airdropSig);
 
-    // 2. Create Underlying SPL Token Mint
+    // Create mock underlying token
     underlyingMint = await createMint(
       provider.connection,
-      authority,
-      authority.publicKey,
+      (provider.wallet as any).payer,
+      provider.wallet.publicKey,
       null,
       9
     );
 
-    // 3. Derive Program PDAs
-    const [derivedVault] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_state"), underlyingMint.toBuffer()],
+    vaultSeed = new anchor.BN(Date.now());
+
+    [vaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), vaultSeed.toArrayLike(Buffer, "le", 8)],
       program.programId
     );
-    vaultPda = derivedVault;
 
-    const [derivedVaultToken] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_token_account"), vaultPda.toBuffer()],
+    [tokenVaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("token_vault"), vaultPda.toBuffer()],
       program.programId
     );
-    vaultTokenAccount = derivedVaultToken;
 
-    const [derivedShareMint] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_share_mint"), vaultPda.toBuffer()],
+    [shareMintPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("share_mint"), vaultPda.toBuffer()],
       program.programId
     );
-    shareMint = derivedShareMint;
 
-    // 4. Create User Token Accounts & Mint Starting Balance (100 tokens)
-    userTokenAccount = await createAccount(
+    // Setup user token accounts
+    const userAtaObj = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       user,
       underlyingMint,
       user.publicKey
     );
+    userTokenAccount = userAtaObj.address;
 
-    userShareAccount = await createAccount(
+    const userShareObj = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       user,
-      shareMint,
-      user.publicKey
+      shareMintPda,
+      user.publicKey,
+      true
     );
+    userShareAccount = userShareObj.address;
 
+    // Mint underlying tokens to user
     await mintTo(
       provider.connection,
-      authority,
+      (provider.wallet as any).payer,
       underlyingMint,
       userTokenAccount,
-      authority,
-      100 * 10 ** 9
+      provider.wallet.publicKey,
+      INITIAL_MINT_AMOUNT
     );
   });
 
-  it("1. Successfully executes InitializeVault instruction", async () => {
-    const feeBps = 200; // 2%
-
+  it("1. Successfully initializes the vault with deterministic PDAs", async () => {
     await program.methods
-      .initializeVault(feeBps)
+      .initializeVault(vaultSeed, DEPOSIT_CAP)
       .accounts({
-        authority: authority.publicKey,
-        underlyingMint: underlyingMint,
+        authority: provider.wallet.publicKey,
         vault: vaultPda,
-        vaultTokenAccount: vaultTokenAccount,
-        shareMint: shareMint,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY
+        underlyingMint: underlyingMint,
+        tokenVault: tokenVaultPda,
+        shareMint: shareMintPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       })
-      .signers([authority])
       .rpc();
 
     const vaultAccount = await program.account.vault.fetch(vaultPda);
-    expect(vaultAccount.authority.toBase58()).to.equal(authority.publicKey.toBase58());
-    expect(vaultAccount.underlyingMint.toBase58()).to.equal(underlyingMint.toBase58());
-    expect(vaultAccount.managementFeeBps).to.equal(feeBps);
-    expect(vaultAccount.totalDeposited.toNumber()).to.equal(0);
-    expect(vaultAccount.totalSharesMinted.toNumber()).to.equal(0);
+    assert.strictEqual(
+      vaultAccount.authority.toBase58(),
+      provider.wallet.publicKey.toBase58()
+    );
+    assert.strictEqual(vaultAccount.depositCap.toNumber(), DEPOSIT_CAP.toNumber());
+    assert.strictEqual(vaultAccount.totalDeposited.toNumber(), 0);
   });
 
-  it("2. Successfully processes standard 1-Click deposit into vault", async () => {
-    const depositAmount = new anchor.BN(10 * 10 ** 9); // 10 Tokens
-    const minSharesOut = new anchor.BN(10 * 10 ** 9); // Initial 1:1 ratio expectation
+  it("2. Genesis deposit mints 1:1 LP shares", async () => {
+    const depositAmount = new anchor.BN(1_000_000_000); // 1 token
+    const minSharesExpected = new anchor.BN(1_000_000_000);
 
     await program.methods
-      .deposit(depositAmount, minSharesOut)
+      .deposit(depositAmount, minSharesExpected)
       .accounts({
         user: user.publicKey,
         vault: vaultPda,
-        underlyingMint: underlyingMint,
-        vaultTokenAccount: vaultTokenAccount,
-        shareMint: shareMint,
-        userTokenAccount: userTokenAccount,
+        tokenVault: tokenVaultPda,
+        shareMint: shareMintPda,
+        userToken: userTokenAccount,
         userShareAccount: userShareAccount,
-        tokenProgram: TOKEN_PROGRAM_ID
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
       })
       .signers([user])
       .rpc();
 
-    const vaultAccount = await program.account.vault.fetch(vaultPda);
-    expect(vaultAccount.totalDeposited.toString()).to.equal(depositAmount.toString());
-    expect(vaultAccount.totalSharesMinted.toString()).to.equal(depositAmount.toString());
+    const userShareBalance = await getAccount(provider.connection, userShareAccount);
+    const tokenVaultBalance = await getAccount(provider.connection, tokenVaultPda);
 
-    // Verify token account states
-    const vaultBal = await getAccount(provider.connection, vaultTokenAccount);
-    expect(vaultBal.amount.toString()).to.equal(depositAmount.toString());
-
-    const userShares = await getAccount(provider.connection, userShareAccount);
-    expect(userShares.amount.toString()).to.equal(depositAmount.toString());
+    assert.strictEqual(Number(userShareBalance.amount), 1_000_000_000);
+    assert.strictEqual(Number(tokenVaultBalance.amount), 1_000_000_000);
   });
 
-  it("3. Enforces strict zero-deposit rejection", async () => {
-    let hasFailed = false;
+  it("3. Rejects zero deposit with custom error", async () => {
     try {
       await program.methods
         .deposit(new anchor.BN(0), new anchor.BN(0))
         .accounts({
           user: user.publicKey,
           vault: vaultPda,
-          underlyingMint: underlyingMint,
-          vaultTokenAccount: vaultTokenAccount,
-          shareMint: shareMint,
-          userTokenAccount: userTokenAccount,
+          tokenVault: tokenVaultPda,
+          shareMint: shareMintPda,
+          userToken: userTokenAccount,
           userShareAccount: userShareAccount,
-          tokenProgram: TOKEN_PROGRAM_ID
+          tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
         })
         .signers([user])
         .rpc();
+      assert.fail("Should have thrown ZeroDepositAmount error");
     } catch (err: any) {
-      hasFailed = true;
       expect(err.error.errorCode.code).to.equal("ZeroDepositAmount");
     }
-    expect(hasFailed).to.be.true;
   });
 
-  it("4. Enforces slippage tolerance limits on minimum shares received", async () => {
-    const depositAmount = new anchor.BN(5 * 10 ** 9);
-    const impossibleMinShares = new anchor.BN(100 * 10 ** 9); // Demanding 100 shares for 5 tokens
+  it("4. Enforces slippage protection correctly", async () => {
+    const depositAmount = new anchor.BN(500_000_000);
+    // Demanding unrealistic shares will trigger SlippageExceeded
+    const excessiveMinShares = new anchor.BN(9_000_000_000);
 
-    let hasFailed = false;
     try {
       await program.methods
-        .deposit(depositAmount, impossibleMinShares)
+        .deposit(depositAmount, excessiveMinShares)
         .accounts({
           user: user.publicKey,
           vault: vaultPda,
-          underlyingMint: underlyingMint,
-          vaultTokenAccount: vaultTokenAccount,
-          shareMint: shareMint,
-          userTokenAccount: userTokenAccount,
+          tokenVault: tokenVaultPda,
+          shareMint: shareMintPda,
+          userToken: userTokenAccount,
           userShareAccount: userShareAccount,
-          tokenProgram: TOKEN_PROGRAM_ID
+          tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
         })
         .signers([user])
         .rpc();
+      assert.fail("Expected transaction to fail on slippage check");
     } catch (err: any) {
-      hasFailed = true;
       expect(err.error.errorCode.code).to.equal("SlippageExceeded");
     }
-    expect(hasFailed).to.be.true;
   });
 });

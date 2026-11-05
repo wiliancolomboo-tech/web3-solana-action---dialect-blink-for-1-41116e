@@ -1,22 +1,21 @@
-version: "3.8"
+version: "3.9"
 
 services:
-  omnivault-blink-gateway:
+  blink-action-gateway:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: omnivault-gateway
+    container_name: blink-action-gateway
     restart: always
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
-      - NODE_ENV=production
-      - SOLANA_RPC_URL=https://api.devnet.solana.com
-      - PROGRAM_ID=Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS
-      - DISCORD_WEBHOOK_URL=https://api.example.com/webhooks/alerts/placeholder
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+      - SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+      - ENTERPRISE_DISCORD_WEBHOOK=https://discord.com/api/webhooks/your-enterprise-hook
+      - RESEND_API_KEY=re_test_000000000000000000000000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

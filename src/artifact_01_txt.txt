@@ -1,11 +1,13 @@
-+---------------------------------------------------------------------------------------------------+
-|                                  BUSINESS IMPACT COMPARISON                                       |
-+--------------------------+-------------------------------------+----------------------------------+
-| Metric                   | Traditional DeFi Deposit Flow       | Solana Action Blink Engine       |
-+--------------------------+-------------------------------------+----------------------------------+
-| Clicks-to-Deposit        | 7 to 11 discrete clicks             | 1 Click (Inline in Social Feed)  |
-| Time-to-Settle           | 90 - 180 seconds                     | ~400ms (Solana Slot Finality)    |
-| Drop-Off Rate            | 68.4%                               | < 4.2%                           |
-| Gas Overhead             | Multiple Approvals + Swap + Deposit | 1 Atomic Aggregated Instruction  |
-| Notification Feedback    | Manual Explorer Refresh             | Automated Webhook & Email Engine |
-+--------------------------+-------------------------------------+----------------------------------+
+[Social Feed: X / Discord / Telegram]
+                │
+     (Dialect Blink Rendering)
+                │
+                ▼
+  [Client-Side Wallet (Phantom/Solflare)]
+                │
+      (1-Click Signed Transaction)
+                │
+     ┌──────────┴──────────┐
+     ▼                     ▼
+[Jupiter v6 Swap]  ──>  [Anchor Vault Core]
+(Any Token -> USDC)     (Deposit & Mint Share Receipt)

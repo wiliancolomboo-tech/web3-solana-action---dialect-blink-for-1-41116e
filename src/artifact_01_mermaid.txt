@@ -1,40 +1,31 @@
 flowchart TD
-    subgraph ClientLayer["Client & Social Surface Layer"]
-        A["User on X (Twitter) / Dialect Extension"] -->|Renders URL via actions.json| B["Blink Unfurl Engine"]
-        B -->|GET /api/actions/vault-deposit| C["Next.js / Express Action API Server"]
-        C -->|Returns JSON Metadata & Action UI Inputs| B
-        A -->|Selects Amount & Clicks Deposit| D["Wallet Adapter (Phantom, Solflare)"]
+    subgraph ClientLayer ["1. Social Client & Blink Host"]
+        A["User on X (Twitter) / Dialect Extension"] --> B["Blink Client Client fetches actions.json"]
+        B --> C["GET /api/actions/vault-deposit"]
     end
 
-    subgraph APILayer["Solana Action Backend Engine"]
-        D -->|POST payload: {account: pubkey}| E["POST /api/actions/vault-deposit"]
-        E -->|Validate Params & Balance| F["Transaction Builder"]
-        F -->|Fetch Pool & Vault On-Chain State| G["RPC Node (Solana Mainnet/Devnet)"]
-        F -->|Build Anchor Instruction: swap_and_deposit| H["Unsigned Wire Transaction"]
-        H -->|Base64 Encoded with Signer specs| D
+    subgraph BlinkEngine ["2. Enterprise Action Gateway (Node/TS)"]
+        C --> D["Return Action Metadata (Title, Icon, Form Controls)"]
+        A -->|User enters deposit amount & clicks Deposit| E["POST /api/actions/vault-deposit (account: Pubkey)"]
+        E --> F{"Token Match?"}
+        F -->|Different Asset| G["Fetch Jupiter Swap Route & Instruction"]
+        F -->|Vault Token| H["Skip Swap"]
+        G --> I["Compose Anchor Vault Deposit Instruction"]
+        H --> I
+        I --> J["Build VersionedTx v0 with Address Lookup Table (ALT)"]
+        J --> K["Return Base64 Serialized Unsigned Transaction"]
     end
 
-    subgraph ExecutionLayer["On-Chain Runtime (Anchor Program)"]
-        D -->|Sign & Send Transaction via RPC| I["Solana Sealevel Runtime"]
-        I -->|Route to Program ID| J["vault_blink Program"]
-        
-        subgraph SecurityGuards["Security & Validation Checks"]
-            J --> K{"Signer & Account Checks"}
-            K -->|Invalid PDA / Signer| K1["Revert: InvalidSigner / ConstraintViolation"]
-            K -->|Passed| L{"Slippage & Invariant Check"}
-            L -->|dy < min_shares_out| L1["Revert: SlippageExceeded"]
-        end
-
-        subgraph CoreOperations["Atomic State Mutations"]
-            L -->|Passed| M["CPI: SPL Token Transfer / Swap"]
-            M --> N["Update Vault State (total_assets += dx)"]
-            N --> O["Calculate Share Math: S = (A * TotalShares) / TotalAssets"]
-            O --> P["CPI: Mint LP Shares to User ATA"]
-        end
+    subgraph LedgerExecution ["3. Solana Runtime & Anchor Program"]
+        K --> L["User Wallet Signs & Broadcasts via RPC"]
+        L --> M["Solana Validator Pipeline"]
+        M --> N["Atomic Swap (Jupiter CPI)"]
+        N --> O["Anchor Vault: Transfer Token to Vault PDA"]
+        O --> P["Anchor Vault: Mint Proportional Share Tokens (SPL)"]
     end
 
-    subgraph StateStorage["Ledger Account State"]
-        N --> Q[("Vault PDA: ['vault', vault_id]")]
-        N --> R[("Vault Token Reserve ATA")]
-        P --> S[("User LP Token ATA")]
+    subgraph EnterpriseOps ["4. Enterprise Observability & Webhooks"]
+        M -.->|Transaction Finalized WebSocket| Q["Enterprise Event Consumer"]
+        Q --> R["Discord / Slack Treasury Alerts"]
+        Q --> S["Prometheus Metrics / Datadog APM"]
     end

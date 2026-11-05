@@ -1,12 +1,12 @@
 [package]
-name = "vault_blink"
+name = "yield-vault"
 version = "0.1.0"
-description = "1-Click Liquid Staking Vault for Dialect Blinks"
+description = "Production-grade 1-Click Dialect Blink Yield Vault on Solana"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "vault_blink"
+name = "yield_vault"
 
 [features]
 no-entrypoint = []
@@ -17,4 +17,4 @@ default = []
 
 [dependencies]
 anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
-anchor-spl = { version = "0.30.1", features = ["token"] }
+anchor-spl = { version = "0.30.1", features = ["token", "associated_token"] }
